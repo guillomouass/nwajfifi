@@ -949,11 +949,49 @@ document.getElementById('daily-quote').textContent = q.t;
 document.getElementById('daily-author').textContent = q.a;
 
 // =========================================================
-// API YAHOO FINANCE (via proxy public)
+// API FINNHUB
 // =========================================================
 const FINNHUB_KEY = 'd79t089r01qspme61hegd79t089r01qspme61hf0';
 
-// Conversion tickers Yahoo → Finnhub
+// Dictionnaire nom → ticker
+const nameToTicker = {
+  'nvidia': 'NVDA', 'apple': 'AAPL', 'microsoft': 'MSFT', 'google': 'GOOGL',
+  'alphabet': 'GOOGL', 'amazon': 'AMZN', 'meta': 'META', 'facebook': 'META',
+  'tesla': 'TSLA', 'netflix': 'NFLX', 'amd': 'AMD', 'intel': 'INTC',
+  'uber': 'UBER', 'airbnb': 'ABNB', 'palantir': 'PLTR', 'coinbase': 'COIN',
+  'paypal': 'PYPL', 'visa': 'V', 'mastercard': 'MA', 'jpmorgan': 'JPM',
+  'disney': 'DIS', 'boeing': 'BA', 'coca cola': 'KO', 'pepsi': 'PEP',
+  'mcdonalds': 'MCD', 'nike': 'NKE', 'starbucks': 'SBUX',
+  'lvmh': 'MC.PA', 'louis vuitton': 'MC.PA', 'total': 'TTE.PA',
+  'totalenergies': 'TTE.PA', 'bnp': 'BNP.PA', 'bnp paribas': 'BNP.PA',
+  'airbus': 'AIR.PA', 'sanofi': 'SAN.PA', 'loreal': 'OR.PA',
+  'hermes': 'RMS.PA', 'safran': 'SAF.PA', 'schneider': 'SU.PA',
+  'danone': 'BN.PA', 'renault': 'RNO.PA', 'orange': 'ORA.PA', 'engie': 'ENGI.PA',
+  'vinci': 'DG.PA', 'capgemini': 'CAP.PA', 'dassault': 'DSY.PA',
+  'asml': 'ASML.AS', 'siemens': 'SIE.DE', 'sap': 'SAP.DE',
+  'volkswagen': 'VOW3.DE', 'bmw': 'BMW.DE', 'mercedes': 'MBG.DE',
+  'adidas': 'ADS.DE', 'nestle': 'NESN.SW', 'ferrari': 'RACE.MI',
+  'shell': 'SHEL.L', 'hsbc': 'HSBA.L', 'bp': 'BP.L',
+  'bitcoin': 'BINANCE:BTCUSDT', 'btc': 'BINANCE:BTCUSDT',
+  'ethereum': 'BINANCE:ETHUSDT', 'eth': 'BINANCE:ETHUSDT',
+  'solana': 'BINANCE:SOLUSDT', 'sol': 'BINANCE:SOLUSDT',
+  'bnb': 'BINANCE:BNBUSDT', 'ripple': 'BINANCE:XRPUSDT', 'xrp': 'BINANCE:XRPUSDT',
+  'dogecoin': 'BINANCE:DOGEUSDT', 'doge': 'BINANCE:DOGEUSDT',
+  'or': 'OANDA:XAU_USD', 'gold': 'OANDA:XAU_USD',
+  'argent': 'OANDA:XAG_USD', 'silver': 'OANDA:XAG_USD',
+  'petrole': 'OANDA:BCO_USD', 'oil': 'OANDA:BCO_USD',
+  'cac': 'FOREXCOM:FRA40', 'cac40': 'FOREXCOM:FRA40', 'cac 40': 'FOREXCOM:FRA40',
+  'sp500': 'FOREXCOM:SPXUSD', 'nasdaq': 'FOREXCOM:NSXUSD',
+  'dow jones': 'FOREXCOM:DJI', 'stoxx': 'FOREXCOM:EU50',
+  'spy': 'SPY', 'qqq': 'QQQ',
+};
+
+function resolveSymbol(input) {
+  const clean = input.trim().toLowerCase();
+  return nameToTicker[clean] || input.trim().toUpperCase();
+}
+
+// Conversion tickers vers Finnhub
 function toFinnhub(symbol) {
   const map = {
     'MC.PA': 'MC.PA', 'TTE.PA': 'TTE.PA', 'BNP.PA': 'BNP.PA',
@@ -1051,22 +1089,43 @@ const profilAnalyse = {
 };
 
 async function searchAsset() {
-  const sym = document.getElementById('search-input').value.trim().toUpperCase();
-  if (!sym) return;
+  const raw = document.getElementById('search-input').value.trim();
+  if (!raw) return;
   document.getElementById('search-error').style.display = 'none';
   document.getElementById('analyse-result').style.display = 'none';
 
-  // Loading
   const btn = document.querySelector('#page-analyse .btn-primary');
   btn.textContent = '...';
   btn.disabled = true;
 
   try {
+    // 1. Essayer le dictionnaire local d'abord
+    let sym = resolveSymbol(raw);
+
+    // 2. Si pas trouvé dans le dico, chercher via Finnhub search
+    if (sym === raw.trim().toUpperCase()) {
+      try {
+        const searchRes = await fetch(
+          'https://finnhub.io/api/v1/search?q=' + encodeURIComponent(raw) + '&token=' + FINNHUB_KEY
+        );
+        const searchData = await searchRes.json();
+        if (searchData.result && searchData.result.length > 0) {
+          // Prendre le premier résultat pertinent (type COMMON_STOCK en priorité)
+          const best = searchData.result.find(r => r.type === 'Common Stock') 
+                    || searchData.result.find(r => r.type === 'EQS')
+                    || searchData.result[0];
+          sym = best.symbol;
+          // Afficher le ticker trouvé dans le champ
+          document.getElementById('search-input').value = sym;
+        }
+      } catch(e) {}
+    }
+
     const d = await fetchQuote(sym);
     displayAsset(d);
   } catch(e) {
     document.getElementById('search-error').style.display = 'flex';
-    document.getElementById('search-error-msg').textContent = e.message || 'Actif non trouvé. Vérifiez le ticker (ex: MC.PA pour LVMH, BTC-USD pour Bitcoin)';
+    document.getElementById('search-error-msg').textContent = e.message || 'Actif non trouvé. Essayez le ticker exact (ex: ENGI.PA, VIE.PA)';
   } finally {
     btn.textContent = 'Chercher';
     btn.disabled = false;
